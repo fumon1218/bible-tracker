@@ -53,23 +53,21 @@ const App: React.FC = () => {
           setFamilyMembers(data.members);
         }
       } else {
-        // 데이터가 없으면 초기값으로 생성
-        setDoc(snapshot.ref, { members: DEFAULT_MEMBERS });
+        // 데이터가 없으면 로컬 기본값 유지 (자동으로 덮어쓰기 방지)
+        console.log("No config document found. Using default.");
       }
+    }, (error) => {
+      console.error("멤버 동기화 오류:", error);
+      alert("데이터 불러오기 실패: " + error.message);
     });
 
     // 2. 읽기 상태 동기화
     const unsubStatus = onSnapshot(doc(db, "bible_tracker", "status"), (snapshot) => {
       if (snapshot.exists()) {
         setReadStatus(snapshot.data() as ReadStatus);
-      } else {
-        // 초기 읽기 상태 생성
-        const initial: ReadStatus = {};
-        BIBLE_BOOKS.forEach(book => {
-          initial[book.name] = Array.from({ length: book.chapters }, () => []);
-        });
-        setDoc(snapshot.ref, initial);
       }
+    }, (error) => {
+      console.error("읽기표 동기화 오류:", error);
     });
 
     return () => {
