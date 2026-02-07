@@ -108,11 +108,13 @@ const App: React.FC = () => {
 
     BIBLE_BOOKS.forEach(book => {
       const chapters = readStatus[book.name];
-      if (chapters) {
+      if (Array.isArray(chapters)) {
         chapters.forEach(readers => {
-          readers.forEach(rid => {
-            if (results[rid] !== undefined) results[rid]++;
-          });
+          if (Array.isArray(readers)) {
+            readers.forEach(rid => {
+              if (results[rid] !== undefined) results[rid]++;
+            });
+          }
         });
       }
     });
@@ -265,7 +267,7 @@ const App: React.FC = () => {
             <div className="flex items-center gap-2 mt-1 px-1">
               <div className={`w-2 h-2 rounded-full ${connectionStatus === 'connected' ? 'bg-green-400' : connectionStatus === 'error' ? 'bg-red-500' : 'bg-yellow-400 animate-pulse'}`}></div>
               <span className="text-[10px] font-bold opacity-80">
-                {connectionStatus === 'connected' ? '실시간 동기화 중 (v2.6.1 12:00)' : connectionStatus === 'error' ? '연결 끊김 (오류)' : '연결 중...'}
+                {connectionStatus === 'connected' ? '실시간 동기화 중 (v2.6.2 12:05)' : connectionStatus === 'error' ? '연결 끊김 (오류)' : '연결 중...'}
               </span>
             </div>
           </div>
@@ -698,7 +700,6 @@ const SettingsModal: React.FC<{
                       placeholder="이름을 입력하세요"
                     />
                   </div>
-                  {/* 날짜 설정 제거됨 (글로벌 설정으로 통합) */}
                 </div>
               </div>
             </div>
