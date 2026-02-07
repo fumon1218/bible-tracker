@@ -246,7 +246,7 @@ const App: React.FC = () => {
             <div className="flex items-center gap-2 mt-1 px-1">
               <div className={`w-2 h-2 rounded-full ${connectionStatus === 'connected' ? 'bg-green-400' : connectionStatus === 'error' ? 'bg-red-500' : 'bg-yellow-400 animate-pulse'}`}></div>
               <span className="text-[10px] font-bold opacity-80">
-                {connectionStatus === 'connected' ? '실시간 동기화 중 (v2.4 11:15)' : connectionStatus === 'error' ? '연결 끊김 (오류)' : '연결 중...'}
+                {connectionStatus === 'connected' ? '실시간 동기화 중 (v2.5 11:25)' : connectionStatus === 'error' ? '연결 끊김 (오류)' : '연결 중...'}
               </span>
             </div>
           </div>
@@ -510,10 +510,17 @@ const BookCard: React.FC<{
 
 const SettingsModal: React.FC<{
   familyMembers: FamilyMember[];
-  onSave: (updated: FamilyMember[]) => void;
+  onSave: (updated: FamilyMember[]) => Promise<void>;
   onClose: () => void;
 }> = ({ familyMembers, onSave, onClose }) => {
   const [localMembers, setLocalMembers] = useState<FamilyMember[]>(JSON.parse(JSON.stringify(familyMembers)));
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    await onSave(localMembers);
+    setIsSaving(false);
+  };
 
   const handleUpdateMember = (id: string, updates: Partial<FamilyMember>) => {
     setLocalMembers(prev => prev.map(m => m.id === id ? { ...m, ...updates } : m));
@@ -527,8 +534,8 @@ const SettingsModal: React.FC<{
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 2 * 1024 * 1024) {
-      alert("이미지 크기가 너무 큽니다. (2MB 이하만 가능)");
+    if (file.size > 5 * 1024 * 1024) {
+      alert("이미지 파일이 너무 큽니다. (5MB 이하만 가능)");
       return;
     }
 
@@ -538,7 +545,7 @@ const SettingsModal: React.FC<{
       img.src = reader.result as string;
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const MAX_SIZE = 100;
+        const MAX_SIZE = 120; // 썸네일 크기 조금 증가
         let width = img.width;
         let height = img.height;
 
@@ -560,11 +567,13 @@ const SettingsModal: React.FC<{
 
         if (ctx) {
           ctx.drawImage(img, 0, 0, width, height);
-          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.5);
-          console.log("Original:", file.size, "Compressed:", compressedBase64.length);
+          // 압축 품질 0.6으로 설정
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6);
+          // 디버깅용: 용량 확인
+          console.log(`[Image Upload] Member: ${id}, Original: ${file.size}, Compressed: ${compressedBase64.length}`);
 
-          if (compressedBase64.length > 500 * 1024) {
-            alert("이미지를 더 이상 압축할 수 없습니다.");
+          if (compressedBase64.length > 100 * 1024) {
+            alert(`이미지 용량이 너무 큽니다 (${Math.round(compressedBase64.length / 1024)}KB). 조금 더 단순한 사진을 써주세요.`);
             return;
           }
 
@@ -710,8 +719,10 @@ const SettingsModal: React.FC<{
         </div>
 
         <div className="p-8 bg-slate-50 border-t border-slate-100 flex gap-4">
-          <button onClick={onClose} className="flex-1 py-4 font-black text-slate-500 hover:text-slate-700">취소</button>
-          <button onClick={() => onSave(localMembers)} className="flex-[2] bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-xl hover:bg-indigo-700 transition-colors">설정 저장</button>
+          <button onClick={onClose} disabled={isSaving} className="flex-1 py-4 font-black text-slate-500 hover:text-slate-700 disabled:opacity-50">취소</button>
+          <button onClick={handleSave} disabled={isSaving} className={`flex-[2] py-4 rounded-2xl font-black shadow-xl transition-colors ${isSaving ? 'bg-slate-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}>
+            {isSaving ? '저장 중...' : '설정 저장'}
+          </button>
         </div>
       </div>
     </div>
