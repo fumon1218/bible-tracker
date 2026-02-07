@@ -101,8 +101,9 @@ const App: React.FC = () => {
 
     BIBLE_BOOKS.forEach(book => {
       const chapters = readStatus[book.name];
-      if (Array.isArray(chapters)) {
-        chapters.forEach(readers => {
+      if (chapters && typeof chapters === 'object') {
+        // 기존 배열 형태나 새로운 객체 형태 모두 대응 (하이브리드 지원)
+        Object.values(chapters).forEach(readers => {
           if (Array.isArray(readers)) {
             readers.forEach(rid => {
               if (results[rid] !== undefined) results[rid]++;
@@ -173,9 +174,15 @@ const App: React.FC = () => {
   const toggleChapter = useCallback(async (bookName: string, chapterIdx: number, isShift: boolean) => {
     if (!activeMemberId) return;
 
-    // 1. 최신 상태 가져오기 (Ref 사용으로 비동기 타이밍 문제 해결)
+    // 1. 최신 상태 가져오기 (Ref 사용)
     const currentStatus = readStatusRef.current;
-    const bookChapters = JSON.parse(JSON.stringify(currentStatus[bookName] || []));
+
+    // 해당 성경의 현재 장 정보 가져오기 (객체 형태)
+    const rawChapters = currentStatus[bookName] || {};
+    // 만약 기존 데이터가 배열 형태라면 객체로 변환 (마이그레이션)
+    const bookChapters: Record<string, string[]> = Array.isArray(rawChapters)
+      ? rawChapters.reduce((acc, curr, idx) => ({ ...acc, [idx]: curr || [] }), {})
+      : JSON.parse(JSON.stringify(rawChapters));
 
     // 2. 타겟 인덱스 계산
     let targetIndices = [chapterIdx];
@@ -192,10 +199,7 @@ const App: React.FC = () => {
     const shouldBeRead = !isCurrentlyRead;
 
     targetIndices.forEach(idx => {
-      for (let i = 0; i <= idx; i++) {
-        if (!bookChapters[i]) bookChapters[i] = [];
-      }
-      const readers = [...bookChapters[idx]];
+      const readers = [...(bookChapters[idx] || [])];
       const mIdx = readers.indexOf(activeMemberId);
       if (shouldBeRead) {
         if (mIdx === -1) readers.push(activeMemberId);
@@ -209,7 +213,7 @@ const App: React.FC = () => {
     setReadStatus(prev => ({ ...prev, [bookName]: bookChapters }));
     setLastClicked({ bookName, index: chapterIdx });
 
-    // 5. Firestore 저장 (해당 권만 선택적 병합)
+    // 5. Firestore 저장
     try {
       await setDoc(doc(db, "bible_tracker", "status"), {
         [bookName]: bookChapters
@@ -258,7 +262,7 @@ const App: React.FC = () => {
             <div className="flex items-center gap-2 mt-1 px-1">
               <div className={`w-2 h-2 rounded-full ${connectionStatus === 'connected' ? 'bg-green-400' : connectionStatus === 'error' ? 'bg-red-500' : 'bg-yellow-400 animate-pulse'}`}></div>
               <span className="text-[10px] font-bold opacity-80">
-                {connectionStatus === 'connected' ? '실시간 동기화 중 (v2.7.1 13:20)' : connectionStatus === 'error' ? '연결 끊김 (오류)' : '연결 중...'}
+                {connectionStatus === 'connected' ? '실시간 동기화 중 (v2.7.2 13:40)' : connectionStatus === 'error' ? '연결 끊김 (오류)' : '연결 중...'}
               </span>
             </div>
           </div>
@@ -295,7 +299,7 @@ const App: React.FC = () => {
                     <BookCard
                       key={book.id}
                       book={book}
-                      status={readStatus[book.name] || []}
+                      status={readStatus[book.name] || {}}
                       activeMemberId={activeMemberId}
                       familyMembers={familyMembers}
                       onToggle={toggleChapter}
@@ -405,12 +409,12 @@ const App: React.FC = () => {
 
 const BookCard: React.FC<{
   book: BibleBook,
-  status: string[][],
+  status: Record<string, string[]>,
   activeMemberId: string,
   familyMembers: FamilyMember[],
   onToggle: (bookName: string, chapterIdx: number, isShift: boolean) => void
 }> = ({ book, status, activeMemberId, familyMembers, onToggle }) => {
-  const readCountByActive = status.filter(readers => readers.includes(activeMemberId)).length;
+  const readCountByActive = Object.values(status).filter((readers: string[]) => readers.includes(activeMemberId)).length;
   const isCompleteByActive = readCountByActive === book.chapters;
   return (
     <div className={`bg-white rounded-[2rem] border-2 overflow-hidden transition-all duration-300 ${isCompleteByActive ? 'border-indigo-500 shadow-xl' : 'border-slate-100 hover:border-indigo-100'}`}>

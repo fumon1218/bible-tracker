@@ -7,7 +7,8 @@ export interface BibleBook {
 }
 
 // 각 장(index)마다 읽은 사람들의 ID 배열을 가집니다.
-export type ReadStatus = Record<string, string[][]>;
+// Firestore는 중첩 배열([[]])을 지원하지 않으므로, 챕터 인덱스를 키로 하는 객체로 변경합니다.
+export type ReadStatus = Record<string, Record<string, string[]>>;
 
 export interface Bookmark {
   bookName: string;
