@@ -231,15 +231,31 @@ const App: React.FC = () => {
 
       <header className="bg-indigo-600 text-white p-6 shadow-lg sticky top-0 z-50">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <h1 className="text-2xl font-black flex items-center gap-2">
-            <span className="text-3xl">📖</span> 우리 가족 성경 읽기표
-          </h1>
+          <div className="flex flex-col">
+            <h1 className="text-2xl font-black flex items-center gap-2">
+              <span className="text-3xl">📖</span> 우리 가족 성경 읽기표
+            </h1>
+            <div className="flex items-center gap-2 mt-1 px-1">
+              <div className={`w-2 h-2 rounded-full ${connectionStatus === 'connected' ? 'bg-green-400' : connectionStatus === 'error' ? 'bg-red-500' : 'bg-yellow-400 animate-pulse'}`}></div>
+              <span className="text-[10px] font-bold opacity-80">
+                {connectionStatus === 'connected' ? '실시간 동기화 중' : connectionStatus === 'error' ? '연결 끊김 (오류)' : '연결 중...'}
+              </span>
+            </div>
+          </div>
           <div className="flex gap-2">
             <button onClick={() => setIsSettingsOpen(true)} className="bg-indigo-500 hover:bg-indigo-400 px-4 py-2 rounded-xl text-sm font-bold border border-indigo-400/30 transition-colors">가족 설정</button>
             <button onClick={handleExportImage} className="bg-white text-indigo-600 px-5 py-2 rounded-xl text-sm font-black shadow-md hover:bg-indigo-50 transition-colors">이미지 저장</button>
           </div>
         </div>
-      </header>
+    </div>
+      </header >
+
+  { connectionStatus === 'error' && (
+    <div className="bg-red-500 text-white px-4 py-2 text-center text-sm font-bold sticky top-[88px] z-40 shadow-md">
+      🚨 데이터베이스 연결 오류: {errorMessage}<br />
+      (잠시 후 다시 시도하거나, 인터넷 연결을 확인해주세요)
+    </div>
+  )}
 
       <div className="max-w-7xl mx-auto flex flex-col lg:flex-row gap-8 p-4 md:p-8">
         <div ref={exportRef} className="flex-1">
@@ -428,7 +444,7 @@ const App: React.FC = () => {
 
         </div>
       </footer>
-    </div>
+    </div >
   );
 };
 
