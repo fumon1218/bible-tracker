@@ -188,45 +188,58 @@ const App: React.FC = () => {
     }
   }, [activeProgress.readChapters]);
 
-  const toggleChapter = useCallback((bookName: string, chapterIdx: number, isShift: boolean) => {
+  const toggleChapter = useCallback(async (bookName: string, chapterIdx: number, isShift: boolean) => {
     if (!activeMemberId) return;
 
-    setReadStatus(prev => {
-      const updated = { ...prev };
-      const bookChapters = [...(updated[bookName] || [])];
+    // 1. 현재 상태의 깊은 복사본 생성 (불변성 보장)
+    const newStatus = JSON.parse(JSON.stringify(readStatus));
+    const bookChapters = newStatus[bookName] || [];
 
-      let targetIndices = [chapterIdx];
-      if (isShift && lastClicked && lastClicked.bookName === bookName) {
-        const start = Math.min(lastClicked.index, chapterIdx);
-        const end = Math.max(lastClicked.index, chapterIdx);
-        targetIndices = [];
-        for (let i = start; i <= end; i++) {
-          targetIndices.push(i);
-        }
+    // 2. 타겟 챕터 인덱스 계산
+    let targetIndices = [chapterIdx];
+    if (isShift && lastClicked && lastClicked.bookName === bookName) {
+      const start = Math.min(lastClicked.index, chapterIdx);
+      const end = Math.max(lastClicked.index, chapterIdx);
+      targetIndices = [];
+      for (let i = start; i <= end; i++) {
+        targetIndices.push(i);
       }
+    }
 
-      const currentChapterReaders = bookChapters[chapterIdx] || [];
-      const isCurrentlyRead = currentChapterReaders.includes(activeMemberId);
-      const shouldBeRead = !isCurrentlyRead;
+    // 3. 토글 로직 적용 (안전하게 배열 접근)
+    // 기준: 클릭한 챕터의 상태 (읽었으면 -> 안 읽음, 안 읽었으면 -> 읽음)
+    const currentChapterReaders = bookChapters[chapterIdx] || [];
+    const isCurrentlyRead = currentChapterReaders.includes(activeMemberId);
+    const shouldBeRead = !isCurrentlyRead;
 
-      targetIndices.forEach(idx => {
-        const readers = [...(bookChapters[idx] || [])];
-        const memberIdx = readers.indexOf(activeMemberId);
+    targetIndices.forEach(idx => {
+      // 해당 챕터의 독자 목록이 없으면 빈 배열로 초기화
+      if (!bookChapters[idx]) bookChapters[idx] = [];
 
-        if (shouldBeRead) {
-          if (memberIdx === -1) readers.push(activeMemberId);
-        } else {
-          if (memberIdx > -1) readers.splice(memberIdx, 1);
-        }
-        bookChapters[idx] = readers;
-      });
+      const readers = bookChapters[idx];
+      const memberIdx = readers.indexOf(activeMemberId);
 
-      updated[bookName] = bookChapters;
-      return updated;
+      if (shouldBeRead) {
+        if (memberIdx === -1) readers.push(activeMemberId);
+      } else {
+        if (memberIdx > -1) readers.splice(memberIdx, 1);
+      }
     });
 
+    newStatus[bookName] = bookChapters;
+
+    // 4. 로컬 상태 즉시 업데이트 (UI 반응성)
+    setReadStatus(newStatus);
     setLastClicked({ bookName, index: chapterIdx });
-  }, [activeMemberId, lastClicked]);
+
+    // 5. Firestore에 비동기 저장 (데이터 영속성)
+    try {
+      await setDoc(doc(db, "bible_tracker", "status"), newStatus, { merge: true });
+    } catch (e) {
+      console.error("Failed to save status:", e);
+      // 에러 발생 시 사용자에게 알림? (일단은 콘솔만)
+    }
+  }, [activeMemberId, lastClicked, readStatus]);
 
   const handleExportImage = async () => {
     if (!exportRef.current) return;
@@ -268,7 +281,7 @@ const App: React.FC = () => {
             <div className="flex items-center gap-2 mt-1 px-1">
               <div className={`w-2 h-2 rounded-full ${connectionStatus === 'connected' ? 'bg-green-400' : connectionStatus === 'error' ? 'bg-red-500' : 'bg-yellow-400 animate-pulse'}`}></div>
               <span className="text-[10px] font-bold opacity-80">
-                {connectionStatus === 'connected' ? '실시간 동기화 중 (v2.6.3 12:15)' : connectionStatus === 'error' ? '연결 끊김 (오류)' : '연결 중...'}
+                {connectionStatus === 'connected' ? '실시간 동기화 중 (v2.6.4 12:20)' : connectionStatus === 'error' ? '연결 끊김 (오류)' : '연결 중...'}
               </span>
             </div>
           </div>
