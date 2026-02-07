@@ -246,7 +246,7 @@ const App: React.FC = () => {
             <div className="flex items-center gap-2 mt-1 px-1">
               <div className={`w-2 h-2 rounded-full ${connectionStatus === 'connected' ? 'bg-green-400' : connectionStatus === 'error' ? 'bg-red-500' : 'bg-yellow-400 animate-pulse'}`}></div>
               <span className="text-[10px] font-bold opacity-80">
-                {connectionStatus === 'connected' ? '실시간 동기화 중 (v2.3 Fix)' : connectionStatus === 'error' ? '연결 끊김 (오류)' : '연결 중...'}
+                {connectionStatus === 'connected' ? '실시간 동기화 중 (v2.4 11:15)' : connectionStatus === 'error' ? '연결 끊김 (오류)' : '연결 중...'}
               </span>
             </div>
           </div>
