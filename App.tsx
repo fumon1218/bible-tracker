@@ -505,10 +505,41 @@ const SettingsModal: React.FC<{
   const handleImageUpload = (id: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        alert("이미지 크기가 너무 큽니다. (2MB 이하만 가능)");
+        return;
+      }
+
       const reader = new FileReader();
       reader.onloadend = () => {
-        const base64String = reader.result as string;
-        handleUpdateMember(id, { avatarUrl: base64String });
+        const img = new Image();
+        img.src = reader.result as string;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_SIZE = 150; // 썸네일 크기 제한
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_SIZE) {
+              height *= MAX_SIZE / width;
+              width = MAX_SIZE;
+            }
+          } else {
+            if (height > MAX_SIZE) {
+              width *= MAX_SIZE / height;
+              height = MAX_SIZE;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+          handleUpdateMember(id, { avatarUrl: compressedBase64 });
+        };
       };
       reader.readAsDataURL(file);
     }
