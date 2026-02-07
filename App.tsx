@@ -191,58 +191,60 @@ const App: React.FC = () => {
   const toggleChapter = useCallback(async (bookName: string, chapterIdx: number, isShift: boolean) => {
     if (!activeMemberId) return;
 
-    // 1. 현재 상태의 깊은 복사본 생성 (불변성 보장)
-    const newStatus = JSON.parse(JSON.stringify(readStatus));
-    const bookChapters = newStatus[bookName] || [];
+    let updatedBookChapters: string[][] = [];
 
-    // 2. 타겟 챕터 인덱스 계산
-    let targetIndices = [chapterIdx];
-    if (isShift && lastClicked && lastClicked.bookName === bookName) {
-      const start = Math.min(lastClicked.index, chapterIdx);
-      const end = Math.max(lastClicked.index, chapterIdx);
-      targetIndices = [];
-      for (let i = start; i <= end; i++) {
-        targetIndices.push(i);
-      }
-    }
+    // 1. 로컬 상태 업데이트 (함수형 업데이트로 최신 상태 보장)
+    setReadStatus(prev => {
+      const newStatus = JSON.parse(JSON.stringify(prev));
+      const bookChapters = [...(newStatus[bookName] || [])];
 
-    // 3. 토글 로직 적용 (안전하게 배열 접근)
-    // 기준: 클릭한 챕터의 상태 (읽었으면 -> 안 읽음, 안 읽었으면 -> 읽음)
-    const currentChapterReaders = bookChapters[chapterIdx] || [];
-    const isCurrentlyRead = currentChapterReaders.includes(activeMemberId);
-    const shouldBeRead = !isCurrentlyRead;
-
-    targetIndices.forEach(idx => {
-      // 희소 배열(Sparse Array) 방지: 중간에 비어있는 인덱스가 있다면 빈 배열로 채움
-      // Firestore는 [empty, empty, []] 형태를 저장하지 못함
-      for (let i = 0; i <= idx; i++) {
-        if (!bookChapters[i]) bookChapters[i] = [];
+      // 타겟 챕터 인덱스 계산
+      let targetIndices = [chapterIdx];
+      if (isShift && lastClicked && lastClicked.bookName === bookName) {
+        const start = Math.min(lastClicked.index, chapterIdx);
+        const end = Math.max(lastClicked.index, chapterIdx);
+        targetIndices = [];
+        for (let i = start; i <= end; i++) targetIndices.push(i);
       }
 
-      const readers = bookChapters[idx];
-      const memberIdx = readers.indexOf(activeMemberId);
+      // 토글 로직 적용
+      const currentChapterReaders = bookChapters[chapterIdx] || [];
+      const isCurrentlyRead = currentChapterReaders.includes(activeMemberId);
+      const shouldBeRead = !isCurrentlyRead;
 
-      if (shouldBeRead) {
-        if (memberIdx === -1) readers.push(activeMemberId);
-      } else {
-        if (memberIdx > -1) readers.splice(memberIdx, 1);
-      }
+      targetIndices.forEach(idx => {
+        // 희소 배열 방지
+        for (let i = 0; i <= idx; i++) {
+          if (!bookChapters[i]) bookChapters[i] = [];
+        }
+
+        const readers = [...bookChapters[idx]];
+        const mIdx = readers.indexOf(activeMemberId);
+
+        if (shouldBeRead) {
+          if (mIdx === -1) readers.push(activeMemberId);
+        } else {
+          if (mIdx > -1) readers.splice(mIdx, 1);
+        }
+        bookChapters[idx] = readers;
+      });
+
+      updatedBookChapters = bookChapters;
+      return { ...newStatus, [bookName]: bookChapters };
     });
 
-    newStatus[bookName] = bookChapters;
-
-    // 4. 로컬 상태 즉시 업데이트 (UI 반응성)
-    setReadStatus(newStatus);
     setLastClicked({ bookName, index: chapterIdx });
 
-    // 5. Firestore에 비동기 저장 (데이터 영속성)
+    // 2. Firestore에 비동기 저장 (해당 책의 데이터만 선택적으로 업데이트)
     try {
-      await setDoc(doc(db, "bible_tracker", "status"), newStatus, { merge: true });
-    } catch (e) {
-      console.error("Failed to save status:", e);
-      // 에러 발생 시 사용자에게 알림? (일단은 콘솔만)
+      await setDoc(doc(db, "bible_tracker", "status"), {
+        [bookName]: updatedBookChapters
+      }, { merge: true });
+    } catch (e: any) {
+      console.error("저장 실패:", e);
+      alert("데이터 저장에 실패했습니다. (인터넷 연결이나 권한을 확인해주세요)\n오류: " + e.message);
     }
-  }, [activeMemberId, lastClicked, readStatus]);
+  }, [activeMemberId, lastClicked]);
 
   const handleExportImage = async () => {
     if (!exportRef.current) return;
@@ -284,7 +286,7 @@ const App: React.FC = () => {
             <div className="flex items-center gap-2 mt-1 px-1">
               <div className={`w-2 h-2 rounded-full ${connectionStatus === 'connected' ? 'bg-green-400' : connectionStatus === 'error' ? 'bg-red-500' : 'bg-yellow-400 animate-pulse'}`}></div>
               <span className="text-[10px] font-bold opacity-80">
-                {connectionStatus === 'connected' ? '실시간 동기화 중 (v2.6.5 12:25)' : connectionStatus === 'error' ? '연결 끊김 (오류)' : '연결 중...'}
+                {connectionStatus === 'connected' ? '실시간 동기화 중 (v2.7 13:10)' : connectionStatus === 'error' ? '연결 끊김 (오류)' : '연결 중...'}
               </span>
             </div>
           </div>
