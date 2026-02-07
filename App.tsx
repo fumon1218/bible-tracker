@@ -34,6 +34,10 @@ interface LastClicked {
 const App: React.FC = () => {
   const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>(DEFAULT_MEMBERS);
   const [readStatus, setReadStatus] = useState<ReadStatus>({});
+  const readStatusRef = useRef<ReadStatus>({});
+  useEffect(() => {
+    readStatusRef.current = readStatus;
+  }, [readStatus]);
 
 
 
@@ -266,7 +270,7 @@ const App: React.FC = () => {
           familyMembers={familyMembers}
           onSave={async (updated) => {
             try {
-              await setDoc(doc(db, "bible_tracker", "config"), { members: updated });
+              await setDoc(doc(db, "bible_tracker", "config"), { members: updated }, { merge: true });
               setIsSettingsOpen(false);
             } catch (e: any) {
               console.error(e);
@@ -286,7 +290,7 @@ const App: React.FC = () => {
             <div className="flex items-center gap-2 mt-1 px-1">
               <div className={`w-2 h-2 rounded-full ${connectionStatus === 'connected' ? 'bg-green-400' : connectionStatus === 'error' ? 'bg-red-500' : 'bg-yellow-400 animate-pulse'}`}></div>
               <span className="text-[10px] font-bold opacity-80">
-                {connectionStatus === 'connected' ? '실시간 동기화 중 (v2.7 13:10)' : connectionStatus === 'error' ? '연결 끊김 (오류)' : '연결 중...'}
+                {connectionStatus === 'connected' ? '실시간 동기화 중 (v2.7.1 13:20)' : connectionStatus === 'error' ? '연결 끊김 (오류)' : '연결 중...'}
               </span>
             </div>
           </div>
