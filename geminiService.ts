@@ -3,7 +3,7 @@ import { GoogleGenAI } from "@google/genai";
 
 export const getMotivationalMessage = async (percentage: number) => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: `사용자가 현재 성경 읽기표에서 ${percentage.toFixed(1)}%를 읽었습니다. 성경 읽기를 독려하는 짧고 따뜻한 응원 메시지(또는 관련 성경 구절)를 한국어로 1-2문장으로 작성해 주세요.`,

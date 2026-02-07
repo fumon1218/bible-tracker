@@ -4,6 +4,8 @@ import { BIBLE_BOOKS, TOTAL_CHAPTERS } from './constants';
 import { ReadStatus, FamilyMember, BibleBook } from './types';
 import { getMotivationalMessage } from './geminiService';
 import html2canvas from 'html2canvas';
+import { db } from './firebase';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 
 // 선택 가능한 컬러 테마 정의
 const COLOR_THEMES = [
@@ -30,44 +32,63 @@ interface LastClicked {
 }
 
 const App: React.FC = () => {
-  const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>(() => {
-    const saved = localStorage.getItem('bible_family_config_v5');
-    return saved ? JSON.parse(saved) : DEFAULT_MEMBERS;
-  });
-  
-  const [activeMemberId, setActiveMemberId] = useState<string>(() => familyMembers[0]?.id || 'member1');
+  const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>(DEFAULT_MEMBERS);
+  const [readStatus, setReadStatus] = useState<ReadStatus>({});
+
+  const [activeMemberId, setActiveMemberId] = useState<string>('member1');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [lastClicked, setLastClicked] = useState<LastClicked | null>(null);
-  
-  const [readStatus, setReadStatus] = useState<ReadStatus>(() => {
-    const saved = localStorage.getItem('bible_family_read_status_v2');
-    if (saved) return JSON.parse(saved);
-    const initial: ReadStatus = {};
-    BIBLE_BOOKS.forEach(book => {
-      initial[book.name] = Array.from({ length: book.chapters }, () => []);
-    });
-    return initial;
-  });
 
   const [message, setMessage] = useState<string>("주의 말씀은 내 발에 등이요 내 길에 빛이니이다.");
   const [isLoadingMessage, setIsLoadingMessage] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
 
+  // Firestore 실시간 동기화
   useEffect(() => {
-    localStorage.setItem('bible_family_config_v5', JSON.stringify(familyMembers));
-    if (!familyMembers.find(m => m.id === activeMemberId) && familyMembers.length > 0) {
+    // 1. 가족 구성원 정보 동기화
+    const unsubMembers = onSnapshot(doc(db, "bible_tracker", "config"), (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        if (data.members) {
+          setFamilyMembers(data.members);
+        }
+      } else {
+        // 데이터가 없으면 초기값으로 생성
+        setDoc(snapshot.ref, { members: DEFAULT_MEMBERS });
+      }
+    });
+
+    // 2. 읽기 상태 동기화
+    const unsubStatus = onSnapshot(doc(db, "bible_tracker", "status"), (snapshot) => {
+      if (snapshot.exists()) {
+        setReadStatus(snapshot.data() as ReadStatus);
+      } else {
+        // 초기 읽기 상태 생성
+        const initial: ReadStatus = {};
+        BIBLE_BOOKS.forEach(book => {
+          initial[book.name] = Array.from({ length: book.chapters }, () => []);
+        });
+        setDoc(snapshot.ref, initial);
+      }
+    });
+
+    return () => {
+      unsubMembers();
+      unsubStatus();
+    };
+  }, []);
+
+  // activeMemberId가 유효한지 체크
+  useEffect(() => {
+    if (familyMembers.length > 0 && !familyMembers.find(m => m.id === activeMemberId)) {
       setActiveMemberId(familyMembers[0].id);
     }
   }, [familyMembers, activeMemberId]);
 
-  useEffect(() => {
-    localStorage.setItem('bible_family_read_status_v2', JSON.stringify(readStatus));
-  }, [readStatus]);
-
   const familyProgress = useMemo(() => {
     const results: Record<string, number> = {};
     familyMembers.forEach(m => { results[m.id] = 0; });
-    
+
     BIBLE_BOOKS.forEach(book => {
       const chapters = readStatus[book.name];
       if (chapters) {
@@ -81,9 +102,9 @@ const App: React.FC = () => {
     return results;
   }, [readStatus, familyMembers]);
 
-  const activeMember = useMemo(() => 
+  const activeMember = useMemo(() =>
     familyMembers.find(m => m.id === activeMemberId) || familyMembers[0] || DEFAULT_MEMBERS[0]
-  , [familyMembers, activeMemberId]);
+    , [familyMembers, activeMemberId]);
 
   const activeProgress = useMemo(() => {
     const readCount = familyProgress[activeMemberId] || 0;
@@ -110,7 +131,7 @@ const App: React.FC = () => {
 
     const chaptersLeft = TOTAL_CHAPTERS - activeProgress.readChapters;
     const dailyTarget = chaptersLeft > 0 && daysRemaining > 0 ? (chaptersLeft / daysRemaining).toFixed(1) : "0";
-    
+
     const expectedProgress = Math.min(100, (daysPassed / totalDays) * 100);
     const isAhead = activeProgress.percentage >= expectedProgress;
 
@@ -123,8 +144,9 @@ const App: React.FC = () => {
     };
   }, [activeMember, activeProgress]);
 
-  const updateActiveMemberDate = (field: 'startDate' | 'endDate', value: string) => {
-    setFamilyMembers(prev => prev.map(m => m.id === activeMemberId ? { ...m, [field]: value } : m));
+  const updateActiveMemberDate = async (field: 'startDate' | 'endDate', value: string) => {
+    const updatedMembers = familyMembers.map(m => m.id === activeMemberId ? { ...m, [field]: value } : m);
+    await setDoc(doc(db, "bible_tracker", "config"), { members: updatedMembers });
   };
 
   useEffect(() => {
@@ -145,7 +167,7 @@ const App: React.FC = () => {
     setReadStatus(prev => {
       const updated = { ...prev };
       const bookChapters = [...(updated[bookName] || [])];
-      
+
       let targetIndices = [chapterIdx];
       if (isShift && lastClicked && lastClicked.bookName === bookName) {
         const start = Math.min(lastClicked.index, chapterIdx);
@@ -194,10 +216,13 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen pb-[24rem] md:pb-[20rem] lg:pb-[18rem] bg-slate-50 relative selection:bg-indigo-100">
       {isSettingsOpen && (
-        <SettingsModal 
-          familyMembers={familyMembers} 
-          onSave={(updated) => { setFamilyMembers(updated); setIsSettingsOpen(false); }} 
-          onClose={() => setIsSettingsOpen(false)} 
+        <SettingsModal
+          familyMembers={familyMembers}
+          onSave={async (updated) => {
+            await setDoc(doc(db, "bible_tracker", "config"), { members: updated });
+            setIsSettingsOpen(false);
+          }}
+          onClose={() => setIsSettingsOpen(false)}
         />
       )}
 
@@ -230,10 +255,10 @@ const App: React.FC = () => {
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
                   {BIBLE_BOOKS.filter(b => b.category === cat).map(book => (
-                    <BookCard 
-                      key={book.id} 
-                      book={book} 
-                      status={readStatus[book.name] || []} 
+                    <BookCard
+                      key={book.id}
+                      book={book}
+                      status={readStatus[book.name] || []}
                       activeMemberId={activeMemberId}
                       familyMembers={familyMembers}
                       onToggle={toggleChapter}
@@ -251,13 +276,13 @@ const App: React.FC = () => {
               <h3 className="text-xl font-black text-gray-800 mb-12 flex items-center gap-2">
                 🏃‍♂️ 독서 레이스
               </h3>
-              
+
               <div className="flex-1 flex items-end justify-between gap-4 h-80 px-2 relative">
                 {familyMembers.map(member => {
                   const chaptersRead = familyProgress[member.id] || 0;
                   const percentage = (chaptersRead / TOTAL_CHAPTERS) * 100;
                   const isActive = member.id === activeMemberId;
-                  
+
                   return (
                     <div key={member.id} className="flex-1 flex flex-col items-center h-full group">
                       <div className="mb-2 text-[10px] font-black text-slate-400 whitespace-nowrap">
@@ -274,7 +299,7 @@ const App: React.FC = () => {
                           )}
                         </div>
 
-                        <div 
+                        <div
                           className={`w-full ${member.dotColor} rounded-t-xl transition-all duration-1000 ease-out shadow-inner relative`}
                           style={{ height: `${Math.max(5, percentage)}%` }}
                         >
@@ -295,64 +320,64 @@ const App: React.FC = () => {
 
       <footer className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-3xl border-t border-slate-200 p-4 md:p-6 z-[60] shadow-[0_-30px_60px_-15px_rgba(0,0,0,0.12)] lg:max-w-[90rem] lg:left-1/2 lg:-translate-x-1/2 lg:bottom-4 lg:rounded-[2.5rem] lg:border">
         <div className="max-w-full mx-auto flex flex-col gap-4">
-          
+
           {/* 상단 레이아웃: 목표 현황 + 날짜 컨트롤러를 한 줄로 가로로 길게 배치 */}
           <div className="flex flex-col lg:flex-row items-center gap-4 lg:gap-8 bg-slate-50/70 p-4 rounded-[1.5rem] border border-slate-100 shadow-inner">
-            
+
             {/* 1. 날짜 설정 (슬림하게) */}
             <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-2xl border border-slate-100 shadow-sm shrink-0">
-               <div className="flex flex-col">
-                  <label className="text-[8px] font-black text-slate-400 uppercase mb-0.5">START</label>
-                  <input 
-                    type="date" 
-                    value={activeMember.startDate || ''} 
-                    onChange={(e) => updateActiveMemberDate('startDate', e.target.value)}
-                    className="text-xs font-black text-slate-700 focus:outline-none bg-transparent"
-                  />
-               </div>
-               <div className="text-slate-300 font-black px-1">~</div>
-               <div className="flex flex-col">
-                  <label className="text-[8px] font-black text-slate-400 uppercase mb-0.5">GOAL</label>
-                  <input 
-                    type="date" 
-                    value={activeMember.endDate || ''} 
-                    onChange={(e) => updateActiveMemberDate('endDate', e.target.value)}
-                    className="text-xs font-black text-slate-700 focus:outline-none bg-transparent"
-                  />
-               </div>
+              <div className="flex flex-col">
+                <label className="text-[8px] font-black text-slate-400 uppercase mb-0.5">START</label>
+                <input
+                  type="date"
+                  value={activeMember.startDate || ''}
+                  onChange={(e) => updateActiveMemberDate('startDate', e.target.value)}
+                  className="text-xs font-black text-slate-700 focus:outline-none bg-transparent"
+                />
+              </div>
+              <div className="text-slate-300 font-black px-1">~</div>
+              <div className="flex flex-col">
+                <label className="text-[8px] font-black text-slate-400 uppercase mb-0.5">GOAL</label>
+                <input
+                  type="date"
+                  value={activeMember.endDate || ''}
+                  onChange={(e) => updateActiveMemberDate('endDate', e.target.value)}
+                  className="text-xs font-black text-slate-700 focus:outline-none bg-transparent"
+                />
+              </div>
             </div>
 
             {/* 2. 핵심 통계 (가로 배치) */}
             <div className="flex items-center gap-6 flex-1 px-4 border-l border-slate-200/50">
-               <div className="flex items-center gap-2">
-                 <span className="text-[9px] font-black text-slate-400 uppercase">D-DAY</span>
-                 <span className="text-xl font-black text-indigo-600 tabular-nums">
-                   {goalStats ? `D-${goalStats.daysRemaining}` : '-'}
-                 </span>
-               </div>
-               <div className="flex items-center gap-2">
-                 <span className="text-[9px] font-black text-slate-400 uppercase">TARGET</span>
-                 <span className="text-base font-black text-slate-700 tabular-nums">
-                   {goalStats ? `${goalStats.dailyTarget}장/일` : '-'}
-                 </span>
-               </div>
-               
-               {/* 진도 상태바 (가로로 길게) */}
-               <div className="flex-1 hidden md:flex items-center gap-4">
-                  <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden shadow-inner">
-                    <div 
-                      className="h-full bg-slate-400 transition-all duration-1000 ease-out" 
-                      style={{ width: `${goalStats ? goalStats.expectedProgress : 0}%` }}
-                    ></div>
-                  </div>
-                  <div className="text-[9px] font-black text-slate-400 whitespace-nowrap">
-                    권장 진도 {goalStats ? goalStats.expectedProgress.toFixed(0) : 0}%
-                  </div>
-               </div>
-               
-               <div className={`hidden lg:block text-[10px] font-black px-3 py-1 rounded-full ${goalStats?.isAhead ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'}`}>
-                 {goalStats ? (goalStats.isAhead ? '🎯 순항 중' : '🏃 분발 필요') : '-'}
-               </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] font-black text-slate-400 uppercase">D-DAY</span>
+                <span className="text-xl font-black text-indigo-600 tabular-nums">
+                  {goalStats ? `D-${goalStats.daysRemaining}` : '-'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] font-black text-slate-400 uppercase">TARGET</span>
+                <span className="text-base font-black text-slate-700 tabular-nums">
+                  {goalStats ? `${goalStats.dailyTarget}장/일` : '-'}
+                </span>
+              </div>
+
+              {/* 진도 상태바 (가로로 길게) */}
+              <div className="flex-1 hidden md:flex items-center gap-4">
+                <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden shadow-inner">
+                  <div
+                    className="h-full bg-slate-400 transition-all duration-1000 ease-out"
+                    style={{ width: `${goalStats ? goalStats.expectedProgress : 0}%` }}
+                  ></div>
+                </div>
+                <div className="text-[9px] font-black text-slate-400 whitespace-nowrap">
+                  권장 진도 {goalStats ? goalStats.expectedProgress.toFixed(0) : 0}%
+                </div>
+              </div>
+
+              <div className={`hidden lg:block text-[10px] font-black px-3 py-1 rounded-full ${goalStats?.isAhead ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'}`}>
+                {goalStats ? (goalStats.isAhead ? '🎯 순항 중' : '🏃 분발 필요') : '-'}
+              </div>
             </div>
           </div>
 
@@ -364,11 +389,10 @@ const App: React.FC = () => {
                 <button
                   key={member.id}
                   onClick={() => setActiveMemberId(member.id)}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-xl font-black text-xs transition-all duration-300 transform active:scale-95 ${
-                    activeMemberId === member.id 
-                      ? `${member.color} ring-2 ring-indigo-500 shadow-md scale-105` 
-                      : 'bg-white text-slate-400 border border-slate-100 hover:border-indigo-200'
-                  }`}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-xl font-black text-xs transition-all duration-300 transform active:scale-95 ${activeMemberId === member.id
+                    ? `${member.color} ring-2 ring-indigo-500 shadow-md scale-105`
+                    : 'bg-white text-slate-400 border border-slate-100 hover:border-indigo-200'
+                    }`}
                 >
                   {member.avatarUrl ? (
                     <img src={member.avatarUrl} className="w-4 h-4 rounded-full object-cover" alt="" />
@@ -382,20 +406,20 @@ const App: React.FC = () => {
 
             {/* 실시간 개인 진도 (오른쪽으로 길게) */}
             <div className="flex-1 w-full flex items-center gap-4 bg-white/50 px-4 py-2 rounded-2xl border border-slate-100">
-               <div className="text-[10px] font-black text-slate-500 whitespace-nowrap">
-                 {activeMember.name}님: {activeProgress.readChapters}/{TOTAL_CHAPTERS}장
-               </div>
-               <div className="flex-1 h-4 bg-slate-100 rounded-full overflow-hidden shadow-inner border border-slate-200 p-0.5">
-                  <div 
-                    className={`h-full ${activeMember?.dotColor || 'bg-slate-400'} rounded-full transition-all duration-1000 ease-in-out relative`}
-                    style={{ width: `${activeProgress.percentage}%` }}
-                  >
-                    <div className="absolute inset-0 bg-white/20 skew-x-[-45deg] animate-[shimmer_2s_infinite]"></div>
-                  </div>
-               </div>
-               <div className="text-sm font-black text-indigo-600 tabular-nums">
-                 {activeProgress.percentage.toFixed(1)}%
-               </div>
+              <div className="text-[10px] font-black text-slate-500 whitespace-nowrap">
+                {activeMember.name}님: {activeProgress.readChapters}/{TOTAL_CHAPTERS}장
+              </div>
+              <div className="flex-1 h-4 bg-slate-100 rounded-full overflow-hidden shadow-inner border border-slate-200 p-0.5">
+                <div
+                  className={`h-full ${activeMember?.dotColor || 'bg-slate-400'} rounded-full transition-all duration-1000 ease-in-out relative`}
+                  style={{ width: `${activeProgress.percentage}%` }}
+                >
+                  <div className="absolute inset-0 bg-white/20 skew-x-[-45deg] animate-[shimmer_2s_infinite]"></div>
+                </div>
+              </div>
+              <div className="text-sm font-black text-indigo-600 tabular-nums">
+                {activeProgress.percentage.toFixed(1)}%
+              </div>
             </div>
           </div>
 
@@ -405,12 +429,12 @@ const App: React.FC = () => {
   );
 };
 
-const BookCard: React.FC<{ 
-  book: BibleBook, 
-  status: string[][], 
-  activeMemberId: string, 
+const BookCard: React.FC<{
+  book: BibleBook,
+  status: string[][],
+  activeMemberId: string,
   familyMembers: FamilyMember[],
-  onToggle: (bookName: string, chapterIdx: number, isShift: boolean) => void 
+  onToggle: (bookName: string, chapterIdx: number, isShift: boolean) => void
 }> = ({ book, status, activeMemberId, familyMembers, onToggle }) => {
   const readCountByActive = status.filter(readers => readers.includes(activeMemberId)).length;
   const isCompleteByActive = readCountByActive === book.chapters;
@@ -426,11 +450,11 @@ const BookCard: React.FC<{
           {Math.round((readCountByActive / book.chapters) * 100)}%
         </div>
       </div>
-      
+
       <div className="p-5 grid grid-cols-6 gap-2">
         {status.map((readers, idx) => {
           const isReadByActive = readers.includes(activeMemberId);
-          
+
           return (
             <button
               key={idx}
@@ -443,8 +467,8 @@ const BookCard: React.FC<{
               <div className="absolute bottom-1.5 flex gap-0.5 px-1 justify-center w-full">
                 {familyMembers.map(member => (
                   readers.includes(member.id) && (
-                    <div 
-                      key={member.id} 
+                    <div
+                      key={member.id}
                       className={`w-1 h-1 rounded-full ${member.dotColor} border-[0.5px] border-white`}
                     />
                   )
@@ -492,7 +516,7 @@ const SettingsModal: React.FC<{
     const nextYear = new Date();
     nextYear.setFullYear(nextYear.getFullYear() + 1);
     const nextYearStr = nextYear.toISOString().split('T')[0];
-    
+
     setLocalMembers(prev => [...prev, {
       id: newId,
       name: `구성원 ${prev.length + 1}`,
@@ -521,11 +545,11 @@ const SettingsModal: React.FC<{
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
-        
+
         <div className="p-8 overflow-y-auto space-y-6">
           {localMembers.map((member) => (
             <div key={member.id} className="relative group space-y-6 p-6 bg-slate-50 rounded-3xl border border-slate-100 hover:border-indigo-200 transition-colors">
-              <button 
+              <button
                 onClick={() => handleDeleteMember(member.id)}
                 className="absolute top-4 right-4 text-slate-300 hover:text-red-500 transition-colors"
               >
@@ -535,14 +559,14 @@ const SettingsModal: React.FC<{
               <div className="flex flex-col md:flex-row gap-6">
                 <div className="flex flex-col items-center gap-4">
                   <div className="relative">
-                    <input 
-                      type="file" 
-                      id={`file-${member.id}`} 
-                      className="hidden" 
-                      accept="image/*" 
-                      onChange={(e) => handleImageUpload(member.id, e)} 
+                    <input
+                      type="file"
+                      id={`file-${member.id}`}
+                      className="hidden"
+                      accept="image/*"
+                      onChange={(e) => handleImageUpload(member.id, e)}
                     />
-                    <label 
+                    <label
                       htmlFor={`file-${member.id}`}
                       className={`cursor-pointer w-24 h-24 rounded-[2rem] ${member.dotColor} flex items-center justify-center text-white font-black shadow-lg overflow-hidden group/avatar relative`}
                     >
@@ -570,30 +594,30 @@ const SettingsModal: React.FC<{
                 <div className="flex-1 space-y-4">
                   <div>
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">이름</label>
-                    <input 
-                      type="text" 
-                      value={member.name} 
+                    <input
+                      type="text"
+                      value={member.name}
                       onChange={(e) => handleUpdateMember(member.id, { name: e.target.value })}
                       className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 font-bold text-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none"
                       placeholder="이름을 입력하세요"
                     />
                   </div>
-                  
+
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">시작 날짜</label>
-                      <input 
-                        type="date" 
-                        value={member.startDate || ''} 
+                      <input
+                        type="date"
+                        value={member.startDate || ''}
                         onChange={(e) => handleUpdateMember(member.id, { startDate: e.target.value })}
                         className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 font-bold text-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
                       />
                     </div>
                     <div>
                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">목표 날짜</label>
-                      <input 
-                        type="date" 
-                        value={member.endDate || ''} 
+                      <input
+                        type="date"
+                        value={member.endDate || ''}
                         onChange={(e) => handleUpdateMember(member.id, { endDate: e.target.value })}
                         className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 font-bold text-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
                       />
@@ -604,7 +628,7 @@ const SettingsModal: React.FC<{
             </div>
           ))}
 
-          <button 
+          <button
             onClick={handleAddMember}
             className="w-full py-4 border-2 border-dashed border-slate-200 rounded-3xl text-slate-400 font-bold hover:border-indigo-400 hover:text-indigo-400 transition-all flex items-center justify-center gap-2"
           >
@@ -612,7 +636,7 @@ const SettingsModal: React.FC<{
             새 구성원 추가
           </button>
         </div>
-        
+
         <div className="p-8 bg-slate-50 border-t border-slate-100 flex gap-4">
           <button onClick={onClose} className="flex-1 py-4 font-black text-slate-500 hover:text-slate-700">취소</button>
           <button onClick={() => onSave(localMembers)} className="flex-[2] bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-xl hover:bg-indigo-700 transition-colors">설정 저장</button>
