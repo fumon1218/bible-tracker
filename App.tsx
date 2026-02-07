@@ -205,7 +205,8 @@ const App: React.FC = () => {
         }
       }
 
-      const isCurrentlyRead = bookChapters[chapterIdx].includes(activeMemberId);
+      const currentChapterReaders = bookChapters[chapterIdx] || [];
+      const isCurrentlyRead = currentChapterReaders.includes(activeMemberId);
       const shouldBeRead = !isCurrentlyRead;
 
       targetIndices.forEach(idx => {
@@ -267,7 +268,7 @@ const App: React.FC = () => {
             <div className="flex items-center gap-2 mt-1 px-1">
               <div className={`w-2 h-2 rounded-full ${connectionStatus === 'connected' ? 'bg-green-400' : connectionStatus === 'error' ? 'bg-red-500' : 'bg-yellow-400 animate-pulse'}`}></div>
               <span className="text-[10px] font-bold opacity-80">
-                {connectionStatus === 'connected' ? '실시간 동기화 중 (v2.6.2 12:05)' : connectionStatus === 'error' ? '연결 끊김 (오류)' : '연결 중...'}
+                {connectionStatus === 'connected' ? '실시간 동기화 중 (v2.6.3 12:15)' : connectionStatus === 'error' ? '연결 끊김 (오류)' : '연결 중...'}
               </span>
             </div>
           </div>
