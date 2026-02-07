@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { BIBLE_BOOKS, TOTAL_CHAPTERS } from './constants';
 import { ReadStatus, FamilyMember, BibleBook } from './types';
@@ -49,6 +48,7 @@ const App: React.FC = () => {
   });
 
   const [activeMemberId, setActiveMemberId] = useState<string>('member1');
+  const [activeMobileTab, setActiveMobileTab] = useState<'reading' | 'race'>('reading');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [lastClicked, setLastClicked] = useState<LastClicked | null>(null);
 
@@ -102,7 +102,6 @@ const App: React.FC = () => {
     BIBLE_BOOKS.forEach(book => {
       const chapters = readStatus[book.name];
       if (chapters && typeof chapters === 'object') {
-        // 기존 배열 형태나 새로운 객체 형태 모두 대응 (하이브리드 지원)
         Object.values(chapters).forEach(readers => {
           if (Array.isArray(readers)) {
             readers.forEach(rid => {
@@ -174,17 +173,12 @@ const App: React.FC = () => {
   const toggleChapter = useCallback(async (bookName: string, chapterIdx: number, isShift: boolean) => {
     if (!activeMemberId) return;
 
-    // 1. 최신 상태 가져오기 (Ref 사용)
     const currentStatus = readStatusRef.current;
-
-    // 해당 성경의 현재 장 정보 가져오기 (객체 형태)
     const rawChapters = currentStatus[bookName] || {};
-    // 만약 기존 데이터가 배열 형태라면 객체로 변환 (마이그레이션)
     const bookChapters: Record<string, string[]> = Array.isArray(rawChapters)
       ? rawChapters.reduce((acc, curr, idx) => ({ ...acc, [idx]: curr || [] }), {})
       : JSON.parse(JSON.stringify(rawChapters));
 
-    // 2. 타겟 인덱스 계산
     let targetIndices = [chapterIdx];
     if (isShift && lastClicked && lastClicked.bookName === bookName) {
       const start = Math.min(lastClicked.index, chapterIdx);
@@ -193,7 +187,6 @@ const App: React.FC = () => {
       for (let i = start; i <= end; i++) targetIndices.push(i);
     }
 
-    // 3. 토글 로직
     const currentChapterReaders = bookChapters[chapterIdx] || [];
     const isCurrentlyRead = currentChapterReaders.includes(activeMemberId);
     const shouldBeRead = !isCurrentlyRead;
@@ -209,11 +202,9 @@ const App: React.FC = () => {
       bookChapters[idx] = readers;
     });
 
-    // 4. 로컬 상태 업데이트
     setReadStatus(prev => ({ ...prev, [bookName]: bookChapters }));
     setLastClicked({ bookName, index: chapterIdx });
 
-    // 5. Firestore 저장
     try {
       await setDoc(doc(db, "bible_tracker", "status"), {
         [bookName]: bookChapters
@@ -236,7 +227,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen pb-[24rem] md:pb-[20rem] lg:pb-[18rem] bg-slate-50 relative selection:bg-indigo-100">
+    <div className="min-h-screen pb-[28rem] md:pb-[24rem] lg:pb-[18rem] bg-slate-50 relative selection:bg-indigo-100">
       {isSettingsOpen && (
         <SettingsModal
           familyMembers={familyMembers}
@@ -253,48 +244,64 @@ const App: React.FC = () => {
         />
       )}
 
-      <header className="bg-indigo-600 text-white p-6 shadow-lg sticky top-0 z-50">
+      <header className="bg-indigo-600 text-white p-4 md:p-6 shadow-lg sticky top-0 z-50">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex flex-col">
-            <h1 className="text-2xl font-black flex items-center gap-2">
-              <span className="text-3xl">📖</span> 우리 가족 성경 읽기표
+            <h1 className="text-xl md:text-2xl font-black flex items-center gap-2">
+              <span className="text-2xl md:text-3xl">📖</span> 우리 가족 성경 읽기표
             </h1>
             <div className="flex items-center gap-2 mt-1 px-1">
               <div className={`w-2 h-2 rounded-full ${connectionStatus === 'connected' ? 'bg-green-400' : connectionStatus === 'error' ? 'bg-red-500' : 'bg-yellow-400 animate-pulse'}`}></div>
               <span className="text-[10px] font-bold opacity-80">
-                {connectionStatus === 'connected' ? '실시간 동기화 중 (v2.7.2 13:40)' : connectionStatus === 'error' ? '연결 끊김 (오류)' : '연결 중...'}
+                {connectionStatus === 'connected' ? '실시간 동기화 중 (v2.8 14:00)' : connectionStatus === 'error' ? '연결 끊김 (오류)' : '연결 중...'}
               </span>
             </div>
           </div>
-          <div className="flex gap-2">
-            <button onClick={() => setIsSettingsOpen(true)} className="bg-indigo-500 hover:bg-indigo-400 px-4 py-2 rounded-xl text-sm font-bold border border-indigo-400/30 transition-colors">가족 설정</button>
-            <button onClick={handleExportImage} className="bg-white text-indigo-600 px-5 py-2 rounded-xl text-sm font-black shadow-md hover:bg-indigo-50 transition-colors">이미지 저장</button>
+          <div className="flex gap-1 md:gap-2">
+            <button onClick={() => setIsSettingsOpen(true)} className="bg-indigo-500 hover:bg-indigo-400 px-3 py-1.5 md:px-4 md:py-2 rounded-xl text-[10px] md:text-sm font-bold border border-indigo-400/30 transition-colors">가족 설정</button>
+            <button onClick={handleExportImage} className="bg-white text-indigo-600 px-3 py-1.5 md:px-5 md:py-2 rounded-xl text-[10px] md:text-sm font-black shadow-md hover:bg-indigo-50 transition-colors">이미지 저장</button>
           </div>
         </div>
       </header>
 
+      {/* 모바일 전용 탭 스위처 */}
+      <div className="lg:hidden sticky top-[72px] md:top-[88px] z-40 bg-white/80 backdrop-blur-md border-b border-indigo-100 p-2 flex gap-2">
+        <button
+          onClick={() => setActiveMobileTab('reading')}
+          className={`flex-1 py-3 rounded-2xl font-black text-sm transition-all ${activeMobileTab === 'reading' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+        >
+          📖 성경 읽기표
+        </button>
+        <button
+          onClick={() => setActiveMobileTab('race')}
+          className={`flex-1 py-3 rounded-2xl font-black text-sm transition-all ${activeMobileTab === 'race' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+        >
+          🏃‍♂️ 독서 레이스
+        </button>
+      </div>
+
       {connectionStatus === 'error' && (
-        <div className="bg-red-500 text-white px-4 py-2 text-center text-sm font-bold sticky top-[88px] z-40 shadow-md">
+        <div className="bg-red-500 text-white px-4 py-2 text-center text-sm font-bold sticky top-[136px] lg:top-[88px] z-40 shadow-md">
           🚨 데이터베이스 연결 오류: {errorMessage}
         </div>
       )}
 
       <div className="max-w-7xl mx-auto flex flex-col lg:flex-row gap-8 p-4 md:p-8">
-        <div ref={exportRef} className="flex-1">
-          <section className="bg-white rounded-[2rem] p-8 shadow-sm border border-indigo-50 mb-10">
+        <div ref={exportRef} className={`flex-1 ${activeMobileTab === 'race' ? 'hidden lg:block' : 'block'}`}>
+          <section className="bg-white rounded-[2rem] p-6 md:p-8 shadow-sm border border-indigo-50 mb-10">
             <h2 className="text-gray-400 text-[10px] font-black uppercase tracking-widest mb-2">오늘의 한마디</h2>
-            <p className={`text-gray-800 text-xl italic font-bold leading-relaxed ${isLoadingMessage ? 'animate-pulse' : ''}`}>
+            <p className={`text-gray-800 text-lg md:text-xl italic font-bold leading-relaxed ${isLoadingMessage ? 'animate-pulse' : ''}`}>
               "{message}"
             </p>
           </section>
 
-          <div className="space-y-16">
+          <div className="space-y-12 md:space-y-16">
             {['OT', 'NT'].map(cat => (
               <div key={cat}>
-                <h3 className="text-2xl font-black text-gray-800 mb-8 border-b-4 border-indigo-100 pb-2 inline-block">
+                <h3 className="text-xl md:text-2xl font-black text-gray-800 mb-6 md:mb-8 border-b-4 border-indigo-100 pb-2 inline-block">
                   {cat === 'OT' ? '구약 성경' : '신약 성경'}
                 </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 md:gap-8">
                   {BIBLE_BOOKS.filter(b => b.category === cat).map(book => (
                     <BookCard
                       key={book.id}
@@ -311,11 +318,11 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        <aside className="lg:w-80 shrink-0">
+        <aside className={`lg:w-80 shrink-0 ${activeMobileTab === 'reading' ? 'hidden lg:block' : 'block'}`}>
           <div className="sticky top-28">
-            <div className="bg-white rounded-[2.5rem] p-8 shadow-2xl border border-indigo-50 min-h-[500px] flex flex-col">
-              <h3 className="text-xl font-black text-gray-800 mb-12 flex items-center gap-2">🏃‍♂️ 독서 레이스</h3>
-              <div className="flex-1 flex items-end justify-between gap-4 h-80 px-2 relative">
+            <div className="bg-white rounded-[2.5rem] p-6 md:p-8 shadow-2xl border border-indigo-50 min-h-[500px] flex flex-col">
+              <h3 className="text-lg md:text-xl font-black text-gray-800 mb-8 md:mb-12 flex items-center gap-2">🏃‍♂️ 독서 레이스</h3>
+              <div className="flex-1 flex items-end justify-between gap-3 md:gap-4 h-80 px-2 relative">
                 {familyMembers.map(member => {
                   const chaptersRead = familyProgress[member.id] || 0;
                   const percentage = (chaptersRead / TOTAL_CHAPTERS) * 100;
@@ -326,16 +333,16 @@ const App: React.FC = () => {
                       <div className={`relative flex-1 w-full rounded-2xl bg-slate-50 flex flex-col justify-end overflow-hidden border-2 transition-all duration-500 ${isActive ? 'border-indigo-400 ring-4 ring-indigo-50' : 'border-slate-100'}`}>
                         <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10">
                           {member.avatarUrl ? (
-                            <img src={member.avatarUrl} className="w-8 h-8 rounded-full border-2 border-white shadow-md object-cover" alt="" />
+                            <img src={member.avatarUrl} className="w-6 h-6 md:w-8 md:h-8 rounded-full border-2 border-white shadow-md object-cover" alt="" />
                           ) : (
-                            <div className={`w-8 h-8 rounded-full border-2 border-white shadow-md ${member.dotColor} flex items-center justify-center text-[10px] text-white font-bold`}>{member.name.charAt(0)}</div>
+                            <div className={`w-6 h-6 md:w-8 md:h-8 rounded-full border-2 border-white shadow-md ${member.dotColor} flex items-center justify-center text-[8px] md:text-[10px] text-white font-bold`}>{member.name.charAt(0)}</div>
                           )}
                         </div>
                         <div className={`w-full ${member.dotColor} rounded-t-xl transition-all duration-1000 ease-out shadow-inner relative`} style={{ height: `${Math.max(5, percentage)}%` }}>
                           <div className="w-full h-full absolute top-0 left-0 bg-white/20 skew-x-[-20deg] animate-[shimmer_2s_infinite]"></div>
                         </div>
                       </div>
-                      <div className={`mt-4 text-xs font-black truncate w-full text-center transition-colors ${isActive ? 'text-indigo-600' : 'text-slate-400'}`}>{member.name}</div>
+                      <div className={`mt-2 md:mt-4 text-[10px] md:text-xs font-black truncate w-full text-center transition-colors ${isActive ? 'text-indigo-600' : 'text-slate-400'}`}>{member.name}</div>
                     </div>
                   );
                 })}
@@ -345,31 +352,31 @@ const App: React.FC = () => {
         </aside>
       </div>
 
-      <footer className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-3xl border-t border-slate-200 p-4 md:p-6 z-[60] shadow-[0_-30px_60px_-15px_rgba(0,0,0,0.12)] lg:max-w-[90rem] lg:left-1/2 lg:-translate-x-1/2 lg:bottom-4 lg:rounded-[2.5rem] lg:border">
-        <div className="max-w-full mx-auto flex flex-col gap-4">
-          <div className="flex flex-col lg:flex-row items-center gap-4 lg:gap-8 bg-slate-50/70 p-4 rounded-[1.5rem] border border-slate-100 shadow-inner">
-            <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-2xl border border-slate-100 shadow-sm shrink-0">
+      <footer className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-3xl border-t border-slate-200 p-2 md:p-6 z-[60] shadow-[0_-30px_60px_-15px_rgba(0,0,0,0.12)] lg:max-w-[90rem] lg:left-1/2 lg:-translate-x-1/2 lg:bottom-4 lg:rounded-[2.5rem] lg:border">
+        <div className="max-w-full mx-auto flex flex-col gap-2 md:gap-4">
+          <div className="flex flex-col lg:flex-row items-center gap-2 md:gap-8 bg-slate-50/70 p-2 md:p-4 rounded-[1.2rem] md:rounded-[1.5rem] border border-slate-100 shadow-inner">
+            <div className="flex items-center gap-2 md:gap-3 bg-white px-3 py-1.5 md:px-4 md:py-2 rounded-2xl border border-slate-100 shadow-sm shrink-0">
               <div className="flex flex-col">
-                <label className="text-[8px] font-black text-slate-400 uppercase mb-0.5">START</label>
-                <input type="date" value={startDate} onChange={(e) => updateGlobalDate('startDate', e.target.value)} className="text-xs font-black text-slate-700 focus:outline-none bg-transparent" />
+                <label className="text-[6px] md:text-[8px] font-black text-slate-400 uppercase mb-0.5">START</label>
+                <input type="date" value={startDate} onChange={(e) => updateGlobalDate('startDate', e.target.value)} className="text-[10px] md:text-xs font-black text-slate-700 focus:outline-none bg-transparent" />
               </div>
-              <div className="text-slate-300 font-black px-1">~</div>
+              <div className="text-slate-300 font-black px-0.5 md:px-1">~</div>
               <div className="flex flex-col">
-                <label className="text-[8px] font-black text-slate-400 uppercase mb-0.5">GOAL</label>
-                <input type="date" value={endDate} onChange={(e) => updateGlobalDate('endDate', e.target.value)} className="text-xs font-black text-slate-700 focus:outline-none bg-transparent" />
+                <label className="text-[6px] md:text-[8px] font-black text-slate-400 uppercase mb-0.5">GOAL</label>
+                <input type="date" value={endDate} onChange={(e) => updateGlobalDate('endDate', e.target.value)} className="text-[10px] md:text-xs font-black text-slate-700 focus:outline-none bg-transparent" />
               </div>
             </div>
 
-            <div className="flex items-center gap-6 flex-1 px-4 border-l border-slate-200/50">
+            <div className="flex items-center justify-between lg:justify-start gap-4 md:gap-6 flex-1 w-full px-4 md:px-4 lg:border-l border-slate-200/50">
               <div className="flex items-center gap-2">
-                <span className="text-[9px] font-black text-slate-400 uppercase">D-DAY</span>
-                <span className="text-xl font-black text-indigo-600 tabular-nums">{goalStats ? `D-${goalStats.daysRemaining}` : '-'}</span>
+                <span className="text-[8px] md:text-[9px] font-black text-slate-400 uppercase">D-DAY</span>
+                <span className="text-sm md:text-xl font-black text-indigo-600 tabular-nums">{goalStats ? `D-${goalStats.daysRemaining}` : '-'}</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-[9px] font-black text-slate-400 uppercase">TARGET</span>
-                <span className="text-base font-black text-slate-700 tabular-nums">{goalStats ? `${goalStats.dailyTarget}장/일` : '-'}</span>
+                <span className="text-[8px] md:text-[9px] font-black text-slate-400 uppercase">TARGET</span>
+                <span className="text-xs md:text-base font-black text-slate-700 tabular-nums">{goalStats ? `${goalStats.dailyTarget}장/일` : '-'}</span>
               </div>
-              <div className="flex-1 hidden md:flex items-center gap-4">
+              <div className="flex-1 hidden lg:flex items-center gap-4">
                 <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden shadow-inner">
                   <div className="h-full bg-slate-400 transition-all duration-1000 ease-out" style={{ width: `${goalStats ? goalStats.expectedProgress : 0}%` }}></div>
                 </div>
@@ -378,27 +385,27 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex flex-col xl:flex-row items-center gap-6">
-            <div className="flex flex-wrap justify-center xl:justify-start gap-2 shrink-0">
+          <div className="flex flex-col xl:flex-row items-center gap-2 md:gap-6">
+            <div className="flex flex-wrap justify-center xl:justify-start gap-1.5 md:gap-2 shrink-0">
               {familyMembers.map(member => (
                 <button
                   key={member.id}
                   onClick={() => setActiveMemberId(member.id)}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-xl font-black text-xs transition-all duration-300 transform active:scale-95 ${activeMemberId === member.id ? `${member.color} ring-2 ring-indigo-500 shadow-md scale-105` : 'bg-white text-slate-400 border border-slate-100 hover:border-indigo-200'}`}
+                  className={`flex items-center gap-1.5 md:gap-2 px-2.5 py-1.5 md:px-3 md:py-1.5 rounded-xl font-black text-[10px] md:text-xs transition-all duration-300 transform active:scale-95 ${activeMemberId === member.id ? `${member.color} ring-2 ring-indigo-500 shadow-md scale-105` : 'bg-white text-slate-400 border border-slate-100 hover:border-indigo-200'}`}
                 >
-                  {member.avatarUrl ? <img src={member.avatarUrl} className="w-4 h-4 rounded-full object-cover" alt="" /> : <div className={`w-4 h-4 rounded-full ${member.dotColor}`}></div>}
+                  {member.avatarUrl ? <img src={member.avatarUrl} className="w-3.5 h-3.5 md:w-4 md:h-4 rounded-full object-cover" alt="" /> : <div className={`w-3.5 h-3.5 md:w-4 md:h-4 rounded-full ${member.dotColor}`}></div>}
                   {member.name}
                 </button>
               ))}
             </div>
-            <div className="flex-1 w-full flex items-center gap-4 bg-white/50 px-4 py-2 rounded-2xl border border-slate-100">
-              <div className="text-[10px] font-black text-slate-500 whitespace-nowrap">{activeMember.name}님: {activeProgress.readChapters}/{TOTAL_CHAPTERS}장</div>
-              <div className="flex-1 h-4 bg-slate-100 rounded-full overflow-hidden shadow-inner border border-slate-200 p-0.5">
+            <div className="flex-1 w-full flex items-center gap-3 md:gap-4 bg-white/50 px-3 py-1.5 md:px-4 md:py-2 rounded-2xl border border-slate-100">
+              <div className="text-[8px] md:text-[10px] font-black text-slate-500 whitespace-nowrap">{activeMember.name}: {activeProgress.readChapters}/{TOTAL_CHAPTERS}장</div>
+              <div className="flex-1 h-3 md:h-4 bg-slate-100 rounded-full overflow-hidden shadow-inner border border-slate-200 p-0.5">
                 <div className={`h-full ${activeMember?.dotColor || 'bg-slate-400'} rounded-full transition-all duration-1000 ease-in-out relative`} style={{ width: `${activeProgress.percentage}%` }}>
                   <div className="absolute inset-0 bg-white/20 skew-x-[-45deg] animate-[shimmer_2s_infinite]"></div>
                 </div>
               </div>
-              <div className="text-sm font-black text-indigo-600 tabular-nums">{activeProgress.percentage.toFixed(1)}%</div>
+              <div className="text-xs md:text-sm font-black text-indigo-600 tabular-nums">{activeProgress.percentage.toFixed(1)}%</div>
             </div>
           </div>
         </div>
@@ -510,7 +517,7 @@ const SettingsModal: React.FC<{
               </div>
             </div>
           ))}
-          <button onClick={handleAddMember} className="w-full py-4 border-2 border-dashed border-slate-200 rounded-3xl text-slate-400 font-bold flex items-center justify-center gap-2">새 구성원 추가</button>
+          <button onClick={handleAddMember} className="w-full py-4 border-2 border-dashed border-slate-100 rounded-3xl text-slate-300 font-bold flex items-center justify-center gap-2">새 구성원 추가</button>
         </div>
         <div className="p-8 bg-slate-50 border-t border-slate-100 flex gap-4">
           <button onClick={onClose} disabled={isSaving} className="flex-1 py-4 font-black text-slate-500 disabled:opacity-50">취소</button>
