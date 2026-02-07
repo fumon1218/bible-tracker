@@ -41,12 +41,18 @@ const App: React.FC = () => {
 
   const [message, setMessage] = useState<string>("주의 말씀은 내 발에 등이요 내 길에 빛이니이다.");
   const [isLoadingMessage, setIsLoadingMessage] = useState(false);
+
+  // connectionStatus, errorMessage 상태 추가
+  const [connectionStatus, setConnectionStatus] = useState<'init' | 'connected' | 'error'>('init');
+  const [errorMessage, setErrorMessage] = useState<string>('');
+
   const exportRef = useRef<HTMLDivElement>(null);
 
   // Firestore 실시간 동기화
   useEffect(() => {
     // 1. 가족 구성원 정보 동기화
     const unsubMembers = onSnapshot(doc(db, "bible_tracker", "config"), (snapshot) => {
+      setConnectionStatus('connected');
       if (snapshot.exists()) {
         const data = snapshot.data();
         if (data.members) {
@@ -58,7 +64,9 @@ const App: React.FC = () => {
       }
     }, (error) => {
       console.error("멤버 동기화 오류:", error);
-      alert("데이터 불러오기 실패: " + error.message);
+      setConnectionStatus('error');
+      setErrorMessage(error.message);
+      // alert("데이터 불러오기 실패: " + error.message); // 너무 자주 뜰 수 있으므로 제거
     });
 
     // 2. 읽기 상태 동기화
@@ -238,7 +246,7 @@ const App: React.FC = () => {
             <div className="flex items-center gap-2 mt-1 px-1">
               <div className={`w-2 h-2 rounded-full ${connectionStatus === 'connected' ? 'bg-green-400' : connectionStatus === 'error' ? 'bg-red-500' : 'bg-yellow-400 animate-pulse'}`}></div>
               <span className="text-[10px] font-bold opacity-80">
-                {connectionStatus === 'connected' ? '실시간 동기화 중' : connectionStatus === 'error' ? '연결 끊김 (오류)' : '연결 중...'}
+                {connectionStatus === 'connected' ? '실시간 동기화 중 (v2.3 Fix)' : connectionStatus === 'error' ? '연결 끊김 (오류)' : '연결 중...'}
               </span>
             </div>
           </div>
@@ -247,15 +255,14 @@ const App: React.FC = () => {
             <button onClick={handleExportImage} className="bg-white text-indigo-600 px-5 py-2 rounded-xl text-sm font-black shadow-md hover:bg-indigo-50 transition-colors">이미지 저장</button>
           </div>
         </div>
-    </div>
-      </header >
+      </header>
 
-  { connectionStatus === 'error' && (
-    <div className="bg-red-500 text-white px-4 py-2 text-center text-sm font-bold sticky top-[88px] z-40 shadow-md">
-      🚨 데이터베이스 연결 오류: {errorMessage}<br />
-      (잠시 후 다시 시도하거나, 인터넷 연결을 확인해주세요)
-    </div>
-  )}
+      {connectionStatus === 'error' && (
+        <div className="bg-red-500 text-white px-4 py-2 text-center text-sm font-bold sticky top-[88px] z-40 shadow-md">
+          🚨 데이터베이스 연결 오류: {errorMessage}<br />
+          (잠시 후 다시 시도하거나, 인터넷 연결을 확인해주세요)
+        </div>
+      )}
 
       <div className="max-w-7xl mx-auto flex flex-col lg:flex-row gap-8 p-4 md:p-8">
         <div ref={exportRef} className="flex-1">
@@ -518,202 +525,197 @@ const SettingsModal: React.FC<{
 
   const handleImageUpload = (id: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 2 * 1024 * 1024) {
-        alert("이미지 크기가 너무 큽니다. (2MB 이하만 가능)");
-        return;
-      }
+    if (!file) return;
 
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const img = new Image();
-        img.src = reader.result as string;
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const MAX_SIZE = 150; // 썸네일 크기 제한
-          let width = img.width;
-          let height = img.height;
+    if (file.size > 2 * 1024 * 1024) {
+      alert("이미지 크기가 너무 큽니다. (2MB 이하만 가능)");
+      return;
+    }
 
-          if (width > height) {
-            if (width > MAX_SIZE) {
-              height *= MAX_SIZE / width;
-              width = MAX_SIZE;
-            }
-          } else {
-            if (height > MAX_SIZE) {
-              width *= MAX_SIZE / height;
-              height = MAX_SIZE;
-            }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const img = new Image();
+      img.src = reader.result as string;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_SIZE = 100;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_SIZE) {
+            height *= MAX_SIZE / width;
+            width = MAX_SIZE;
+          }
+        } else {
+          if (height > MAX_SIZE) {
+            width *= MAX_SIZE / height;
+            height = MAX_SIZE;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.5);
+          console.log("Original:", file.size, "Compressed:", compressedBase64.length);
+
+          if (compressedBase64.length > 500 * 1024) {
+            alert("이미지를 더 이상 압축할 수 없습니다.");
+            return;
           }
 
-          canvas.width = width;
-          canvas.height = height;
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
+          handleUpdateMember(id, { avatarUrl: compressedBase64 });
+        } else {
+          alert("브라우저에서 이미지를 처리할 수 없습니다.");
+        }
+      };
 
-          if (ctx) {
-            ctx.drawImage(img, 0, 0, width, height);
-
-            // 압축률 0.5로 설정하여 용량 대폭 감소
-            const compressedBase64 = canvas.toDataURL('image/jpeg', 0.5);
-            console.log("Original:", file.size, "Compressed:", compressedBase64.length);
-
-            // 약 800KB 초과 시 차단 (Base64 오버헤드 고려)
-            if (compressedBase64.length > 800 * 1024) {
-              alert("이미지를 더 이상 압축할 수 없습니다. 다른 사진을 써주세요.");
-              return;
-            }
-
-            handleUpdateMember(id, { avatarUrl: compressedBase64 });
-          } else {
-            alert("브라우저에서 이미지를 처리할 수 없습니다.");
-          }
-        };
-        img.onerror = () => {
-          alert("이미지 파일이 손상되었거나 읽을 수 없습니다.");
-        };
+      img.onerror = () => {
+        alert("이미지 파일이 손상되었거나 읽을 수 없습니다.");
       };
     };
     reader.readAsDataURL(file);
-  }
-};
+  };
 
-const handleAddMember = () => {
-  const newId = `member_${Date.now()}`;
-  const randomTheme = COLOR_THEMES[Math.floor(Math.random() * COLOR_THEMES.length)];
-  const today = new Date().toISOString().split('T')[0];
-  const nextYear = new Date();
-  nextYear.setFullYear(nextYear.getFullYear() + 1);
-  const nextYearStr = nextYear.toISOString().split('T')[0];
+  const handleAddMember = () => {
+    const newId = `member_${Date.now()}`;
+    const randomTheme = COLOR_THEMES[Math.floor(Math.random() * COLOR_THEMES.length)];
+    const today = new Date().toISOString().split('T')[0];
+    const nextYear = new Date();
+    nextYear.setFullYear(nextYear.getFullYear() + 1);
+    const nextYearStr = nextYear.toISOString().split('T')[0];
 
-  setLocalMembers(prev => [...prev, {
-    id: newId,
-    name: `구성원 ${prev.length + 1}`,
-    label: `구성원 ${prev.length + 1}`,
-    dotColor: randomTheme.dotColor,
-    color: randomTheme.color,
-    startDate: today,
-    endDate: nextYearStr
-  }]);
-};
+    setLocalMembers(prev => [...prev, {
+      id: newId,
+      name: `구성원 ${prev.length + 1}`,
+      label: `구성원 ${prev.length + 1}`,
+      dotColor: randomTheme.dotColor,
+      color: randomTheme.color,
+      startDate: today,
+      endDate: nextYearStr
+    }]);
+  };
 
-const handleDeleteMember = (id: string) => {
-  if (localMembers.length <= 1) {
-    alert("최소 한 명의 구성원은 있어야 합니다.");
-    return;
-  }
-  setLocalMembers(prev => prev.filter(m => m.id !== id));
-};
+  const handleDeleteMember = (id: string) => {
+    if (localMembers.length <= 1) {
+      alert("최소 한 명의 구성원은 있어야 합니다.");
+      return;
+    }
+    setLocalMembers(prev => prev.filter(m => m.id !== id));
+  };
 
-return (
-  <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-    <div className="bg-white w-full max-w-3xl rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-      <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-        <h2 className="text-2xl font-black text-slate-800">가족 설정</h2>
-        <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-        </button>
-      </div>
+  return (
+    <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-white w-full max-w-3xl rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+          <h2 className="text-2xl font-black text-slate-800">가족 설정</h2>
+          <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
 
-      <div className="p-8 overflow-y-auto space-y-6">
-        {localMembers.map((member) => (
-          <div key={member.id} className="relative group space-y-6 p-6 bg-slate-50 rounded-3xl border border-slate-100 hover:border-indigo-200 transition-colors">
-            <button
-              onClick={() => handleDeleteMember(member.id)}
-              className="absolute top-4 right-4 text-slate-300 hover:text-red-500 transition-colors"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-            </button>
+        <div className="p-8 overflow-y-auto space-y-6">
+          {localMembers.map((member) => (
+            <div key={member.id} className="relative group space-y-6 p-6 bg-slate-50 rounded-3xl border border-slate-100 hover:border-indigo-200 transition-colors">
+              <button
+                onClick={() => handleDeleteMember(member.id)}
+                className="absolute top-4 right-4 text-slate-300 hover:text-red-500 transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              </button>
 
-            <div className="flex flex-col md:flex-row gap-6">
-              <div className="flex flex-col items-center gap-4">
-                <div className="relative">
-                  <input
-                    type="file"
-                    id={`file-${member.id}`}
-                    className="hidden"
-                    accept="image/*"
-                    onChange={(e) => handleImageUpload(member.id, e)}
-                  />
-                  <label
-                    htmlFor={`file-${member.id}`}
-                    className={`cursor-pointer w-24 h-24 rounded-[2rem] ${member.dotColor} flex items-center justify-center text-white font-black shadow-lg overflow-hidden group/avatar relative`}
-                  >
-                    {member.avatarUrl ? (
-                      <img src={member.avatarUrl} className="w-full h-full object-cover" alt="" />
-                    ) : (
-                      <span className="text-3xl">{member.name.charAt(0)}</span>
-                    )}
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/avatar:opacity-100 transition-opacity flex items-center justify-center">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                    </div>
-                  </label>
-                </div>
-                <div className="flex flex-wrap justify-center gap-2 max-w-[120px]">
-                  {COLOR_THEMES.map((theme) => (
-                    <button
-                      key={theme.id}
-                      onClick={() => handleUpdateColor(member.id, theme)}
-                      className={`w-5 h-5 rounded-full ${theme.dotColor} ring-offset-2 transition-all transform hover:scale-110 ${member.dotColor === theme.dotColor ? 'ring-2 ring-slate-400 scale-125' : ''}`}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex-1 space-y-4">
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">이름</label>
-                  <input
-                    type="text"
-                    value={member.name}
-                    onChange={(e) => handleUpdateMember(member.id, { name: e.target.value })}
-                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 font-bold text-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none"
-                    placeholder="이름을 입력하세요"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">시작 날짜</label>
+              <div className="flex flex-col md:flex-row gap-6">
+                <div className="flex flex-col items-center gap-4">
+                  <div className="relative">
                     <input
-                      type="date"
-                      value={member.startDate || ''}
-                      onChange={(e) => handleUpdateMember(member.id, { startDate: e.target.value })}
-                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 font-bold text-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                      type="file"
+                      id={`file-${member.id}`}
+                      className="hidden"
+                      accept="image/*"
+                      onChange={(e) => handleImageUpload(member.id, e)}
+                    />
+                    <label
+                      htmlFor={`file-${member.id}`}
+                      className={`cursor-pointer w-24 h-24 rounded-[2rem] ${member.dotColor} flex items-center justify-center text-white font-black shadow-lg overflow-hidden group/avatar relative`}
+                    >
+                      {member.avatarUrl ? (
+                        <img src={member.avatarUrl} className="w-full h-full object-cover" alt="" />
+                      ) : (
+                        <span className="text-3xl">{member.name.charAt(0)}</span>
+                      )}
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/avatar:opacity-100 transition-opacity flex items-center justify-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                      </div>
+                    </label>
+                  </div>
+                  <div className="flex flex-wrap justify-center gap-2 max-w-[120px]">
+                    {COLOR_THEMES.map((theme) => (
+                      <button
+                        key={theme.id}
+                        onClick={() => handleUpdateColor(member.id, theme)}
+                        className={`w-5 h-5 rounded-full ${theme.dotColor} ring-offset-2 transition-all transform hover:scale-110 ${member.dotColor === theme.dotColor ? 'ring-2 ring-slate-400 scale-125' : ''}`}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex-1 space-y-4">
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">이름</label>
+                    <input
+                      type="text"
+                      value={member.name}
+                      onChange={(e) => handleUpdateMember(member.id, { name: e.target.value })}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 font-bold text-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none"
+                      placeholder="이름을 입력하세요"
                     />
                   </div>
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">목표 날짜</label>
-                    <input
-                      type="date"
-                      value={member.endDate || ''}
-                      onChange={(e) => handleUpdateMember(member.id, { endDate: e.target.value })}
-                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 font-bold text-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
-                    />
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">시작 날짜</label>
+                      <input
+                        type="date"
+                        value={member.startDate || ''}
+                        onChange={(e) => handleUpdateMember(member.id, { startDate: e.target.value })}
+                        className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 font-bold text-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">목표 날짜</label>
+                      <input
+                        type="date"
+                        value={member.endDate || ''}
+                        onChange={(e) => handleUpdateMember(member.id, { endDate: e.target.value })}
+                        className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 font-bold text-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-        ))}
+          ))}
 
-        <button
-          onClick={handleAddMember}
-          className="w-full py-4 border-2 border-dashed border-slate-200 rounded-3xl text-slate-400 font-bold hover:border-indigo-400 hover:text-indigo-400 transition-all flex items-center justify-center gap-2"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
-          새 구성원 추가
-        </button>
-      </div>
+          <button
+            onClick={handleAddMember}
+            className="w-full py-4 border-2 border-dashed border-slate-200 rounded-3xl text-slate-400 font-bold hover:border-indigo-400 hover:text-indigo-400 transition-all flex items-center justify-center gap-2"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+            새 구성원 추가
+          </button>
+        </div>
 
-      <div className="p-8 bg-slate-50 border-t border-slate-100 flex gap-4">
-        <button onClick={onClose} className="flex-1 py-4 font-black text-slate-500 hover:text-slate-700">취소</button>
-        <button onClick={() => onSave(localMembers)} className="flex-[2] bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-xl hover:bg-indigo-700 transition-colors">설정 저장</button>
+        <div className="p-8 bg-slate-50 border-t border-slate-100 flex gap-4">
+          <button onClick={onClose} className="flex-1 py-4 font-black text-slate-500 hover:text-slate-700">취소</button>
+          <button onClick={() => onSave(localMembers)} className="flex-[2] bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-xl hover:bg-indigo-700 transition-colors">설정 저장</button>
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
 };
 
 export default App;
