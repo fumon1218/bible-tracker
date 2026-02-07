@@ -213,8 +213,11 @@ const App: React.FC = () => {
     const shouldBeRead = !isCurrentlyRead;
 
     targetIndices.forEach(idx => {
-      // 해당 챕터의 독자 목록이 없으면 빈 배열로 초기화
-      if (!bookChapters[idx]) bookChapters[idx] = [];
+      // 희소 배열(Sparse Array) 방지: 중간에 비어있는 인덱스가 있다면 빈 배열로 채움
+      // Firestore는 [empty, empty, []] 형태를 저장하지 못함
+      for (let i = 0; i <= idx; i++) {
+        if (!bookChapters[i]) bookChapters[i] = [];
+      }
 
       const readers = bookChapters[idx];
       const memberIdx = readers.indexOf(activeMemberId);
@@ -281,7 +284,7 @@ const App: React.FC = () => {
             <div className="flex items-center gap-2 mt-1 px-1">
               <div className={`w-2 h-2 rounded-full ${connectionStatus === 'connected' ? 'bg-green-400' : connectionStatus === 'error' ? 'bg-red-500' : 'bg-yellow-400 animate-pulse'}`}></div>
               <span className="text-[10px] font-bold opacity-80">
-                {connectionStatus === 'connected' ? '실시간 동기화 중 (v2.6.4 12:20)' : connectionStatus === 'error' ? '연결 끊김 (오류)' : '연결 중...'}
+                {connectionStatus === 'connected' ? '실시간 동기화 중 (v2.6.5 12:25)' : connectionStatus === 'error' ? '연결 끊김 (오류)' : '연결 중...'}
               </span>
             </div>
           </div>
