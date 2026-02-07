@@ -219,8 +219,13 @@ const App: React.FC = () => {
         <SettingsModal
           familyMembers={familyMembers}
           onSave={async (updated) => {
-            await setDoc(doc(db, "bible_tracker", "config"), { members: updated });
-            setIsSettingsOpen(false);
+            try {
+              await setDoc(doc(db, "bible_tracker", "config"), { members: updated });
+              setIsSettingsOpen(false);
+            } catch (e: any) {
+              console.error(e);
+              alert("저장 실패! 오류 내용: " + e.message + "\n(데이터베이스 생성이 안 되었거나 권한 문제일 수 있습니다.)");
+            }
           }}
           onClose={() => setIsSettingsOpen(false)}
         />
